@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>JJK Battlegrounds</title>
+  <style>
+    canvas { background: #111; display: block; margin: 0 auto; }
+    #adminGui {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 10px;
+      display: none;
+      border: 2px solid white;
+    }
+    #passwordPrompt {
+      position: absolute;
+      top: 100px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: black;
+      color: white;
+      padding: 20px;
+      display: none;
+      border: 2px solid white;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="800" height="600"></canvas>
+
+  <div id="adminGui">
+    <h3>Admin Panel</h3>
+    <p>Welcome, admin!</p>
+  </div>
+
+  <div id="passwordPrompt">
+    <label>Enter Admin Password:</label><br>
+    <input type="password" id="adminInput" />
+    <button onclick="checkPassword()">Enter</button>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let players = [];
+let mahoragaSequence = null;
+let adminUnlocked = false;
+let guiVisible = false;
+
+const keys = {};
+document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+document.addEventListener("keydown", e => {
+  if (e.key === "F2") {
+    if (!adminUnlocked && !guiVisible) {
+      document.getElementById("passwordPrompt").style.display = "block";
+      guiVisible = true;
+    } else if (!adminUnlocked && guiVisible) {
+      document.getElementById("passwordPrompt").style.display = "none";
+      guiVisible = false;
+    } else {
+      const gui = document.getElementById("adminGui");
+      gui.style.display = gui.style.display === "none" ? "block" : "none";
+    }
+  }
+});
+
+function checkPassword() {
+  const input = document.getElementById("adminInput").value;
+  if (input === "domainbreakers") {
+    adminUnlocked = true;
+    document.getElementById("passwordPrompt").style.display = "none";
+    document.getElementById("adminGui").style.display = "block";
+  } else {
+    alert("Wrong password.");
+  }
+}
+
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function flashScreen(color, duration) {
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  setTimeout(() => {}, duration * 1000);
+}
+
+const characters = [
+  {
+    name: "Megumi",
+    color: "navy",
+    ce: 110,
+    abilities: {
+      q: { name: "Divine Dogs", cooldown: 40, ceCost: 10, effect: (s, o) => o.forEach(t => { if (distance(s, t) < 100) t.health -= 15; }) },
+      e: { name: "Toad Slam", cooldown: 60, ceCost: 20, effect: (s, o) => o.forEach(t => { if (distance(s, t) < 120) t.stun = 30; }) },
+      r: { name: "Max Elephant", cooldown: 90, ceCost: 30, effect: (s, o) => o.forEach(t => { if (distance(s, t) < 150) t.health -= 30; }) },
+      f: { name: "Summon Mahoraga", cooldown: 150, ceCost: 30, effect: (s, o) => { if (!mahoragaSequence) mahoragaSequence = { player: s, timer: 300 }; } }
+    }
+  },
+  {
+    name: "Yuji",
+    color: "crimson",
+    ce: 100,
+    abilities: {
+      q: { name: "Divergent Fist", cooldown: 30, ceCost: 10, effect: (s, o) => o.forEach(t => { if (distance(s, t) < 80) t.health -= 20; }) },
+      e: { name: "Black Flash", cooldown: 70, ceCost: 25, effect: (s, o) => o.forEach(t => { if (distance(s, t) < 100) t.health -= 40; }) },
+      r: { name: "Cursed Rush", cooldown: 80, ceCost: 30, effect: (s, o) => o.forEach(t => { if (distance(s, t) < 120) t.stun = 40; }) },
+      f: { name: "Sukuna Surge", cooldown: 150, ceCost: 50, effect: (s, o) => o.forEach(t => { t.health -= 50; }) }
+    }
+  },
+  {
+    name: "Nobara",
+    color: "orange",
+    ce: 100,
+    abilities: {
+      q: { name: "Hammer Bash", cooldown: 30, ceCost: 10, effect: (s, o) => o.forEach(t => { if (distance(s, t) < 90) t.health -= 15; t.linked = true; }) },
+      e: { name: "Hairpin", cooldown: 50, ceCost: 20, effect: (s, o) => o.forEach(t => { if (t.linked) t.health -= 25; }) },
+      r: { name: "Straw Doll", cooldown: 80, ceCost: 30, effect: (s, o) => o.forEach(t => { if (t.linked) t.health -= 40; t.linked = false; }) },
+      f: { name: "Resonance", cooldown: 120, ceCost: 40, effect: (s, o) => o.forEach(t => { if (t.linked) t.health -= 60; }) }
+    }
+  }
+];
+
+function startGame() {
+  players = [{
+    id: 1,
+    x: 100,
+    y: 250,
+    character: characters[0],
+    health: 100,
+    ce: characters[0].ce,
+    cooldowns: { q: 0, e: 0, r: 0, f: 0 }
+  }];
+  requestAnimationFrame(gameLoop);
+}
+
+function triggerAbility(p, key) {
+  const ability = p.character.abilities?.[key];
+  if (!ability || p.cooldowns[key] > 0 || p.ce < ability.ceCost) return;
+
+  players.forEach(target => {
+    if (target.mahoragaActive > 0 && target !== p) {
+      const move = key;
+      if (target.adaptedMoves?.[move]) {
+        ability.effect = () => {};
+      } else {
+        target.adaptedMoves = target.adaptedMoves || {};
+        target.adaptedMoves[move] = true;
+      }
+    }
+  });
+
+  ability.effect(p, players.filter(o => o !== p));
+  p.cooldowns[key] = ability.cooldown;
+  p.ce -= ability.ceCost;
+}
+
+function gameLoop() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  players.forEach(p => {
+    ctx.fillStyle = p.character.color;
+    ctx.fillRect(p.x, p.y, 40, 40);
+    ctx.fillStyle = "white";
+    ctx.fillText(`${p.character.name}`, p.x, p.y - 10);
+    ctx.fillText(`HP:${p.health} CE:${p.ce}`, p.x, p.y + 55);
+
+    Object.keys(p.cooldowns).forEach(k => p.cooldowns[k] = Math.max(0, p.cooldowns[k] - 1));
+    if (p.mahoragaActive > 0) {
+      p.mahoragaActive--;
+      if (p.mahoragaActive === 0) p.adaptedMoves = {};
+    }
+  });
+
+  if (mahoragaSequence) {
+    const { player, timer } = mahoragaSequence;
+    ctx.fillStyle = "white";
+    ctx.font = "20px sans-serif";
+    ctx.fillText("Mahoraga Ritual: Press R to complete!", 300, 80);
+    ctx.fillText("Time left: " + Math.ceil(timer / 60), 400, 110);
+    mahoragaSequence.timer--;
+
+    if (keys["r"]) {
+      player.mahoragaActive = 600;
+      player.adaptedMoves = {};
+      flashScreen("blue", 0.6);
+      mahoragaSequence = null;
+    } else if (mahoragaSequence.timer <= 0) {
+      mahoragaSequence = null;
+      player.cooldowns.f = 150;
+      player.ce -= 30;
+      ctx.fillText("Mahoraga summon failed!", 350, 140);
+    }
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+document.addEventListener("keydown", e => {
+  const p = players[0];
+  if (!p) return;
+  const k = e.key.toLowerCase();
+  if (["q", "e", "r", "f"].includes(k)) triggerAbility(p, k);
+});
+
+startGame();
+</script>
